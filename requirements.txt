@@ -1,8 +1,5 @@
-# To Run this project in your System You must have the following Python Packages install
-# pip install -r requirements.txt 
-
 streamlit
 pandas
-opencv-python
+opencv-contrib-python
 scikit-learn
 imutils
