@@ -1,0 +1,15 @@
+# Virtual Environment
+/venv
+venv/
+.venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# Data and model files
+/data/raw/
+/data/encodings/
+/Attendance/
+*.pkl
+*.yml
