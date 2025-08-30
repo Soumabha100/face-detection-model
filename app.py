@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import time 
+import time
 from datetime import datetime
 import os
 import cv2
@@ -143,28 +143,29 @@ def take_attendance_auto():
                 cv2.putText(frame, status_text, (x, y+h+30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
                 
                 # Automatically take attendance (record every attempt)
-                ts = time.time()
-                date = datetime.fromtimestamp(ts).strftime("%d-%m-%Y")
-                timestamp = datetime.fromtimestamp(ts).strftime("%H:%M:%S")
-                exist = os.path.isfile("Attendance/Attendance_" + date + ".csv")
-                
-                COL_NAMES = ['NAME', 'TIME']
-                attendance = [str(current_prediction), str(timestamp)]
-                
-                if exist:
-                    with open("Attendance/Attendance_" + date + ".csv", "a", newline='') as csvfile:
-                        writer = csv.writer(csvfile)
-                        writer.writerow(attendance)
-                else:
-                    with open("Attendance/Attendance_" + date + ".csv", "a", newline='') as csvfile:
-                        writer = csv.writer(csvfile)
-                        writer.writerow(COL_NAMES)
-                        writer.writerow(attendance)
-                
-                if already_recorded:
-                    status_placeholder.warning(f"Attendance recorded again for {current_prediction} at {timestamp}")
-                else:
+                if not already_recorded:
+                    ts = time.time()
+                    date = datetime.fromtimestamp(ts).strftime("%d-%m-%Y")
+                    timestamp = datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+                    exist = os.path.isfile("Attendance/Attendance_" + date + ".csv")
+                    
+                    COL_NAMES = ['NAME', 'TIME']
+                    attendance = [str(current_prediction), str(timestamp)]
+                    
+                    if exist:
+                        with open("Attendance/Attendance_" + date + ".csv", "a", newline='') as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerow(attendance)
+                    else:
+                        with open("Attendance/Attendance_" + date + ".csv", "a", newline='') as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerow(COL_NAMES)
+                            writer.writerow(attendance)
+                    
                     status_placeholder.success(f"Attendance recorded for {current_prediction} at {timestamp}")
+                else:
+                    status_placeholder.warning(f"Attendance already recorded for {current_prediction}")
+
                 
                 attendance_taken = True
                 time.sleep(2)
@@ -246,16 +247,18 @@ if os.path.exists('Attendance'):
                 date_str = file.replace("Attendance_", "").replace(".csv", "")
                 df = pd.read_csv(f"Attendance/{file}")
                 
+                # Get unique attendees with their first recorded time
+                unique_attendees_df = df.groupby('NAME').first().reset_index()
+                
                 # Calculate statistics
-                unique_attendees = df['NAME'].nunique()
+                unique_attendees = len(unique_attendees_df)
                 total_records = len(df)
                 
                 # Display with expander
-                with st.expander(f"{date_str} - {unique_attendees} unique attendees, {total_records} total records"):
+                with st.expander(f"{date_str} - {unique_attendees} unique attendees"):
                     st.write(f"**Date:** {date_str}")
                     st.write(f"**Unique Attendees:** {unique_attendees}")
-                    st.write(f"**Total Records:** {total_records}")
-                    st.dataframe(df)
+                    st.dataframe(unique_attendees_df)
                     
             except Exception as e:
                 st.error(f"Could not read {file}: {str(e)}")
