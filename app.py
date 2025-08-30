@@ -9,15 +9,15 @@ import csv
 
 # --- Configuration ---
 DB_PATH = "face_db"
-MODEL_NAME = "SFace"  # Using a lightweight model for performance
+MODEL_NAME = "SFace"  # Lightweight model for performance
 DETECTOR_BACKEND = 'opencv'
 ATTENDANCE_DIR = 'Attendance'
 os.makedirs(ATTENDANCE_DIR, exist_ok=True)
 os.makedirs(DB_PATH, exist_ok=True)
 
 # --- Page Setup ---
-st.set_page_config(page_title="Advanced Attendance System", layout="wide")
-st.title("Smart Attendance System (Advanced)")
+st.set_page_config(page_title="Smart Attendance System", layout="wide")
+st.title("Smart Attendance System")
 
 # --- Helper Functions ---
 @st.cache_data
@@ -34,33 +34,32 @@ def get_todays_attendance():
         return set()
 
 def mark_attendance(name, todays_attendance_set):
-    """Marks attendance and updates the session set to prevent re-marking."""
-    if name == "Unknown" or name is None:
-        return "Face detected, but not recognized.", False
+    """Marks attendance in the CSV and updates the session's attendance set."""
+    if name in ["Unknown", None, "..."]:
+        return "Cannot mark attendance for 'Unknown'.", False
 
     if name in todays_attendance_set:
-        return f"{name}'s attendance already marked.", False
+        return f"{name}'s attendance is already marked.", False
 
-    # Mark attendance in the file
     date_str = datetime.now().strftime("%Y-%m-%d")
     timestamp = datetime.now().strftime("%H:%M:%S")
     attendance_file = os.path.join(ATTENDANCE_DIR, f"Attendance_{date_str}.csv")
-    file_exists = os.path.exists(attendance_file) and os.path.getsize(attendance_file) > 0
+    
+    file_exists_and_not_empty = os.path.exists(attendance_file) and os.path.getsize(attendance_file) > 0
 
     with open(attendance_file, "a", newline='') as csvfile:
         writer = csv.writer(csvfile)
-        if not file_exists:
+        if not file_exists_and_not_empty:
             writer.writerow(['NAME', 'TIME'])
         writer.writerow([name, timestamp])
     
-    # Update the session state
     todays_attendance_set.add(name)
     return f"Welcome, {name}! Attendance marked.", True
 
 # --- Main Application Logic ---
 @st.cache_resource
 def load_models():
-    """Loads models into memory."""
+    """Loads facial detection and recognition models into memory."""
     detector = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
     DeepFace.build_model(MODEL_NAME)
     return detector
@@ -71,26 +70,23 @@ def run_attendance_system():
     
     facedetect = load_models()
 
-    if not os.listdir(DB_PATH):
-        status_placeholder.warning("Face database is empty. Please add faces first.")
+    if not any(os.scandir(DB_PATH)):
+        status_placeholder.warning("Face database is empty. Please run add_faces.py to enroll users.")
         return
 
     video = cv2.VideoCapture(0)
     if not video.isOpened():
-        status_placeholder.error("Cannot access webcam.")
+        status_placeholder.error("Cannot access webcam. Please check camera permissions.")
         return
 
-    status_placeholder.info("System started. Looking for faces...")
+    status_placeholder.info("System activated. Please look at the camera.")
     
-    # Initialize session state variables
-    if 'stop' not in st.session_state:
-        st.session_state.stop = False
-    if 'todays_attendance' not in st.session_state:
-        st.session_state.todays_attendance = get_todays_attendance()
+    if 'stop' not in st.session_state: st.session_state.stop = False
+    if 'todays_attendance' not in st.session_state: st.session_state.todays_attendance = get_todays_attendance()
     
-    # Dictionary to track recognition timers for each face
-    recognition_timers = {} 
-    RECOGNITION_INTERVAL = 15  # Recognize a specific face every 15 frames
+    # Use a local dictionary for tracking faces in the current run, not session_state
+    face_tracking_data = {} 
+    RECOGNITION_INTERVAL = 15
 
     while not st.session_state.stop:
         ret, frame = video.read()
@@ -101,23 +97,21 @@ def run_attendance_system():
         display_frame = frame.copy()
         
         frame_small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-        gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR_GRAY)
         faces = facedetect.detectMultiScale(gray, 1.3, 5)
-        
-        current_names = []
 
         for i, (x, y, w, h) in enumerate(faces):
             x, y, w, h = x*2, y*2, w*2, h*2
             face_roi = frame[y:y+h, x:x+w]
             
-            # Use a simple tracker based on face index
-            face_id = i 
+            face_id = i
             
-            # Increment timer for this face
-            recognition_timers[face_id] = recognition_timers.get(face_id, 0) + 1
+            if face_id not in face_tracking_data:
+                face_tracking_data[face_id] = {'name': '...', 'timer': 0}
+            
+            face_tracking_data[face_id]['timer'] += 1
 
-            # Periodically run recognition
-            if recognition_timers[face_id] % RECOGNITION_INTERVAL == 0:
+            if face_tracking_data[face_id]['timer'] % RECOGNITION_INTERVAL == 0:
                 try:
                     dfs = DeepFace.find(
                         img_path=face_roi,
@@ -131,23 +125,18 @@ def run_attendance_system():
                     if dfs and not dfs[0].empty:
                         identity = dfs[0]['identity'].iloc[0]
                         name = os.path.basename(os.path.dirname(identity))
-                        st.session_state[f'face_{face_id}_name'] = name
+                        face_tracking_data[face_id]['name'] = name
                     else:
-                        st.session_state[f'face_{face_id}_name'] = "Unknown"
+                        face_tracking_data[face_id]['name'] = "Unknown"
                 except:
-                    st.session_state[f'face_{face_id}_name'] = "Unknown"
-            
-            # Get the last known name for this face
-            name_to_display = st.session_state.get(f'face_{face_id}_name', "...")
-            current_names.append(name_to_display)
+                    face_tracking_data[face_id]['name'] = "Searching..."
 
-            # Mark attendance if this name hasn't been marked today
-            if name_to_display != "Unknown" and name_to_display != "...":
-                status_message, marked = mark_attendance(name_to_display, st.session_state.todays_attendance)
-                if marked:
-                    status_placeholder.success(status_message)
+            name_to_display = face_tracking_data[face_id]['name']
             
-            # Draw visuals
+            status_message, marked = mark_attendance(name_to_display, st.session_state.todays_attendance)
+            if marked:
+                status_placeholder.success(status_message)
+            
             cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             cv2.putText(display_frame, name_to_display, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
@@ -162,16 +151,27 @@ def run_attendance_system():
 
 def display_attendance():
     st.header("Today's Attendance")
-    if st.button("Refresh Attendance"):
+    if st.button("Refresh"):
         st.session_state.todays_attendance = get_todays_attendance()
         st.rerun()
 
     attendance_list = sorted(list(st.session_state.get('todays_attendance', get_todays_attendance())))
     if attendance_list:
         df = pd.DataFrame(attendance_list, columns=["NAME"])
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No attendance has been recorded yet today.")
+        
+    st.header("Historical Attendance Records")
+    files = sorted([f for f in os.listdir(ATTENDANCE_DIR) if f.endswith('.csv')], reverse=True)
+    for file in files:
+        date_str = file.replace("Attendance_", "").replace(".csv", "")
+        with st.expander(f"Records for {date_str}"):
+            try:
+                df = pd.read_csv(os.path.join(ATTENDANCE_DIR, file))
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            except pd.errors.EmptyDataError:
+                st.write("No records for this day.")
 
 # --- Streamlit UI ---
 col1, col2 = st.columns([2, 1])
