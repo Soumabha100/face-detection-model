@@ -11,5 +11,6 @@ __pycache__/
 /data/raw/
 /data/encodings/
 /Attendance/
+/face_db/
 *.pkl
 *.yml
