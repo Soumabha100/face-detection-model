@@ -1,133 +1,120 @@
 import cv2
-import pickle
-import numpy as np
 import os
-import time
+import numpy as np
 
 # --- Configuration ---
-# The target number of face samples to collect.
-# Increasing this number will improve model accuracy but take longer.
-NUMBER_OF_FACES_TO_COLLECT = 100
+DATA_DIR = 'data/raw'
+NUMBER_OF_SAMPLES = 100  # Number of images to collect per person
+IMAGE_SIZE = (100, 100) # Standardize image size
 
-# Create data directory if it doesn't exist
-if not os.path.exists('data'):
-    os.makedirs('data')
+# Ensure the main data directory exists
+os.makedirs(DATA_DIR, exist_ok=True)
 
-video = cv2.VideoCapture(0)
-if not video.isOpened():
-    print("Error: Could not open webcam.")
-    exit()
+def get_image_quality(image):
+    """
+    Analyzes an image to determine its quality based on brightness and blurriness.
+    Returns a tuple: (is_good_quality, brightness, focus)
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Brightness check (mean of pixel intensities)
+    brightness = np.mean(gray)
+    
+    # Focus check (Laplacian variance)
+    focus = cv2.Laplacian(gray, cv2.CV_64F).var()
+    
+    # Define acceptable thresholds
+    min_brightness = 60
+    max_brightness = 200
+    min_focus = 100  # Adjust this threshold based on camera quality
+    
+    is_good = min_brightness < brightness < max_brightness and focus > min_focus
+    return is_good, brightness, focus
 
-facedetect = cv2.CascadeClassifier('data/haarcascade_frontalface_default.xml')
+def collect_faces():
+    """
+    Main function to guide the user through the face sample collection process.
+    """
+    name = input("Enter the person's name (no spaces, e.g., 'John_Doe'): ").strip()
+    if not name:
+        print("Name cannot be empty.")
+        return
 
-faces_data = []
-i = 0
+    person_dir = os.path.join(DATA_DIR, name)
+    os.makedirs(person_dir, exist_ok=True)
 
-name = input("Enter Your Name: ")
+    video = cv2.VideoCapture(0)
+    if not video.isOpened():
+        print("Error: Could not open webcam.")
+        return
 
-# --- User Interface and Instructions ---
+    facedetect = cv2.CascadeClassifier('data/haarcascade_frontalface_default.xml')
+    
+    sample_count = 0
+    while sample_count < NUMBER_OF_SAMPLES:
+        ret, frame = video.read()
+        if not ret:
+            print("Error: Failed to capture frame.")
+            break
 
-def create_ui_frame():
-    """Creates the base UI frame with instructions."""
-    frame = np.zeros((700, 1000, 3), dtype=np.uint8)
-    frame[:, :] = (50, 50, 150)  # Dark blue background
-
-    cv2.putText(frame, "Collecting Face Samples", (280, 80), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
-    cv2.rectangle(frame, (250, 150), (750, 550), (255, 255, 255), 2)
-    return frame
-
-# --- Main Loop ---
-
-while True:
-    ret, frame = video.read()
-    if not ret:
-        print("Error: Failed to capture frame.")
-        break
+        # Flip the frame horizontally for a more natural mirror-like view
+        frame = cv2.flip(frame, 1)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Detect faces with optimized parameters
-    faces = facedetect.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-    
-    # Create the main UI frame for display
-    ui_frame = create_ui_frame()
+        # Fine-tuned face detection
+        faces = facedetect.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=6, minSize=(100, 100))
 
-    # Get the current number of collected faces
-    collected_count = len(faces_data)
+        if len(faces) == 1:
+            x, y, w, h = faces[0]
+            face_img = frame[y:y+h, x:x+w]
+            
+            # --- Image Quality and Centering Checks ---
+            is_good, brightness, focus = get_image_quality(face_img)
+            
+            # Center check
+            frame_center_x = frame.shape[1] / 2
+            face_center_x = x + w / 2
+            is_centered = abs(frame_center_x - face_center_x) < 50 # Allow 50 pixels deviation
 
-    # --- Instructions based on progress ---
-    if collected_count < 25:
-        instruction = "Look straight at the camera."
-    elif collected_count < 50:
-        instruction = "Slowly turn your head to the LEFT."
-    elif collected_count < 75:
-        instruction = "Slowly turn your head to the RIGHT."
-    else:
-        instruction = "Slowly tilt your head UP and DOWN."
-    
-    cv2.putText(ui_frame, instruction, (300, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            if is_good and is_centered:
+                # Save the high-quality, centered face
+                img_path = os.path.join(person_dir, f"{sample_count + 1}.jpg")
+                cv2.imwrite(img_path, cv2.resize(face_img, IMAGE_SIZE))
+                sample_count += 1
+                
+                # Visual feedback for successful capture
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 3) # Green box
+            else:
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 3) # Red box
 
-    if len(faces) > 0:
-        # Process the largest detected face
-        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        x, y, w, h = faces[0]
+            # Display quality stats
+            cv2.putText(frame, f"Brightness: {brightness:.0f}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(frame, f"Focus: {focus:.0f}", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        crop_img = frame[y:y+h, x:x+w, :]
-        resized_img = cv2.resize(crop_img, (50, 50))
+        # --- Display instructions and progress ---
+        progress_text = f"Progress: {sample_count}/{NUMBER_OF_SAMPLES}"
+        cv2.putText(frame, progress_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+        if sample_count < 25:
+            instruction = "Look FORWARD and hold still."
+        elif sample_count < 50:
+            instruction = "Slowly turn your head LEFT."
+        elif sample_count < 75:
+            instruction = "Slowly turn your head RIGHT."
+        else:
+            instruction = "Tilt head UP and DOWN slowly."
         
-        # Capture an image every 2nd frame to get slight variations
-        if i % 2 == 0:
-            faces_data.append(resized_img)
-        i += 1
-        
-        # Draw face bounding box on the original frame
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (50, 50, 255), 2)
-    
-    # --- Display Progress ---
-    progress_text = f"Progress: {collected_count}/{NUMBER_OF_FACES_TO_COLLECT}"
-    cv2.putText(ui_frame, progress_text, (400, 600), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(frame, instruction, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
-    # Place the live camera feed into the designated rectangle on the UI frame
-    frame_resized = cv2.resize(frame, (500, 400))
-    ui_frame[150:550, 250:750] = frame_resized
-    
-    cv2.imshow("Adding New Face", ui_frame)
-    
-    # Exit condition: Press 'q' or when enough faces are collected
-    if cv2.waitKey(1) & 0xFF == ord('q') or len(faces_data) >= NUMBER_OF_FACES_TO_COLLECT:
-        break
+        cv2.imshow("Collecting Faces...", frame)
 
-video.release()
-cv2.destroyAllWindows()
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-# --- Save Data ---
-if len(faces_data) >= NUMBER_OF_FACES_TO_COLLECT:
-    faces_data = np.asarray(faces_data)
-    faces_data = faces_data.reshape(NUMBER_OF_FACES_TO_COLLECT, -1)
+    video.release()
+    cv2.destroyAllWindows()
+    print(f"\nCollected {sample_count} samples for {name}.")
 
-    # Load existing data or create new files
-    if 'names.pkl' not in os.listdir('data/'):
-        names = [name] * NUMBER_OF_FACES_TO_COLLECT
-        with open('data/names.pkl', 'wb') as f:
-            pickle.dump(names, f)
-    else:
-        with open('data/names.pkl', 'rb') as f:
-            names = pickle.load(f)
-        names = names + ([name] * NUMBER_OF_FACES_TO_COLLECT)
-        with open('data/names.pkl', 'wb') as f:
-            pickle.dump(names, f)
+if __name__ == "__main__":
+    collect_faces()
 
-    if 'faces_data.pkl' not in os.listdir('data/'):
-        with open('data/faces_data.pkl', 'wb') as f:
-            pickle.dump(faces_data, f)
-    else:
-        with open('data/faces_data.pkl', 'rb') as f:
-            faces = pickle.load(f)
-        faces = np.append(faces, faces_data, axis=0)
-        with open('data/faces_data.pkl', 'wb') as f:
-            pickle.dump(faces, f)
-    
-    print(f"Successfully collected and saved {len(faces_data)} images for {name}.")
-else:
-    print("Face collection was interrupted. No data was saved.")
