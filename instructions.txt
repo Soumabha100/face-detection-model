@@ -1,0 +1,76 @@
+=================================================
+ Smart Attendance System - Setup and Usage Guide
+=================================================
+
+Follow these steps to set up and run the application.
+
+--------------------
+### Step 1: Setup
+--------------------
+
+1.  **Create a Virtual Environment:**
+    Open a terminal in the project's root directory and run the following command to create a virtual environment named 'venv'.
+
+    For Windows:
+    python -m venv venv
+
+    For macOS/Linux:
+    python3 -m venv venv
+
+2.  **Activate the Virtual Environment:**
+    You must activate the environment before installing packages or running the scripts.
+
+    For Windows (Command Prompt or PowerShell):
+    .\venv\Scripts\activate
+
+    For macOS/Linux:
+    source venv/bin/activate
+
+    After activation, you will see `(venv)` at the beginning of your terminal prompt.
+
+3.  **Install Required Packages:**
+    With the virtual environment active, install all the necessary Python libraries using the requirements.txt file.
+
+    pip install -r requirements.txt
+
+
+--------------------------------------
+### Step 2: How to Use the Application
+--------------------------------------
+
+You must enroll faces into the database before you can run the attendance system.
+
+**Part A: Enroll a New Person's Face**
+
+This script will guide you to capture 20 high-quality images from different angles.
+
+1.  Make sure your virtual environment is active.
+2.  Run the enrollment script:
+    python add_faces.py
+
+3.  The terminal will ask you to "Enter the person's name". Type a unique name (using underscores instead of spaces, e.g., 'Soumabha_Majumder') and press Enter.
+
+4.  A webcam window will open. Follow the on-screen "CURRENT GOAL" prompt (e.g., "Look Center", "Look Left").
+
+5.  Hold the requested pose until the rectangle around your face turns green and the script automatically captures a photo.
+
+6.  Repeat this for all guided poses until the process is complete.
+
+
+**Part B: Run the Smart Attendance System**
+
+This script launches the web application where you can see the live camera feed and track attendance.
+
+1.  Make sure your virtual environment is active.
+2.  Run the main application using the Streamlit command:
+    streamlit run app.py
+
+3.  This command will automatically open a new tab in your default web browser with the application running.
+4.  Click the "Start Attendance System" button to begin recognition.
+
+--------------------
+### To Stop the Application
+--------------------
+-   To stop the `add_faces.py` script, press 'q' while the camera window is active.
+-   To stop the Streamlit app, click the "Stop System" button in the browser and close the browser tab. You can then press `Ctrl + C` in your terminal.
+-   To deactivate the virtual environment when you are finished, simply type `deactivate` in your terminal and press Enter.
